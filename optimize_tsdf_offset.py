@@ -61,11 +61,54 @@ def opt_fmc(input_v,input_f,iter=500,train_res=[2048,2048],lr=0.01,batch=4,voxel
         init_sdf_np*=-1
 
     sdf=torch.from_numpy(init_sdf_np).float().cuda()
-    sdf=torch.clip(sdf/(2*2/voxel_grid_res),-1,1 ).cpu().numpy()
+    sdf=torch.clip(sdf/(2*2/voxel_grid_res),-1,1 )    #.cpu().numpy()
     
-    deform = torch.zeros_like(x_nx3).cpu().numpy()
+    #deform = torch.zeros_like(x_nx3).cpu().numpy()
 
-    return sdf.reshape(voxel_grid_res+1,voxel_grid_res+1,voxel_grid_res+1,1),deform.reshape(voxel_grid_res+1,voxel_grid_res+1,voxel_grid_res+1,3)
+    sdf    = torch.nn.Parameter(sdf.clone().detach(), requires_grad=True)
+    deform = torch.nn.Parameter(torch.zeros_like(x_nx3), requires_grad=True)
+
+    optimizer = torch.optim.Adam([sdf,deform], lr=lr)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda x: lr_schedule(x)) 
+    
+    #for it in tqdm(range(iter)):
+    for it in range(iter):
+        optimizer.zero_grad()
+        # sample random camera poses
+        mv, mvp = render.get_random_camera_batch(batch, iter_res=train_res, device=device)
+        # render gt mesh
+        target = render.render_mesh(gt_mesh, mv, mvp, train_res)
+        # extract and render FlexiCubes mesh
+        grid_verts = x_nx3 + (2-1e-8) / (voxel_grid_res * 2) * diff_quantized_tensor(deform,) #torch.tanh(deform)
+        vertices, faces=dynamic_marching_cubes(grid_verts,cube_fx8,diff_quantized_tensor(sdf,))
+        flexicubes_mesh = Mesh(vertices, faces)
+        buffers = render.render_mesh(flexicubes_mesh, mv, mvp, train_res)
+        
+        mask_loss = (buffers['mask'] - target['mask']).abs().mean()
+        depth_loss = (((((buffers['depth'] - (target['depth']))* target['mask'])**2).sum(-1)+1e-8)).sqrt().mean() * 10
+
+        if sdf_reg_weights:
+            t_iter = it / iter
+            sdf_weight = sdf_reg_weights - (sdf_reg_weights - sdf_reg_weights/20)*min(1.0, 4.0 * t_iter)
+            reg_loss = loss.sdf_reg_loss(sdf, grid_edges).mean() * sdf_weight # Loss to eliminate internal floaters that are not visible
+        else:
+            reg_loss=0
+
+        total_loss = mask_loss + depth_loss + reg_loss
+
+        total_loss.backward()
+        optimizer.step()
+        scheduler.step()    
+
+    mesh_np = trimesh.Trimesh(vertices = vertices.detach().cpu().numpy(), faces=faces.detach().cpu().numpy(), process=False)
+
+    sdf_np=diff_quantized_tensor(sdf).cpu().detach().numpy()
+    deform_np=(diff_quantized_tensor(deform)).cpu().detach().numpy()
+    
+    return sdf_np.reshape(voxel_grid_res+1,voxel_grid_res+1,voxel_grid_res+1,1),deform_np.reshape(voxel_grid_res+1,voxel_grid_res+1,voxel_grid_res+1,3),mesh_np
+
+
+    #return sdf.reshape(voxel_grid_res+1,voxel_grid_res+1,voxel_grid_res+1,1),deform.reshape(voxel_grid_res+1,voxel_grid_res+1,voxel_grid_res+1,3)
 
 
 if __name__=='__main__':
@@ -97,7 +140,7 @@ if __name__=='__main__':
             print(os.path.join(save_path,'data','%04d.npz'%i),' exists, skip !!!')
             continue
 
-        sdf_grid,offset_grid=opt_fmc(gt_v,gt_f,iter=args.niter,sdf_reg_weights=0,batch=args.batch)
+        sdf_grid,offset_grid,_=opt_fmc(gt_v,gt_f,iter=args.niter,sdf_reg_weights=0,batch=args.batch)
 
         os.makedirs(os.path.join(save_path,'meshes','%04d'%i),exist_ok=True)
         os.makedirs(os.path.join(save_path,'data',),exist_ok=True)
