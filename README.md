@@ -13,8 +13,8 @@
 Prepare mesh data, and put them in a folder.
 
 - Mesh_path
-  - 0000.obj
-  - 0001.obj
+  - 0000.obj   
+  - 0001.obj   
     ......
 
 Then run the following command to optimize each TSDF-Def volume,
