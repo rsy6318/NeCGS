@@ -1,4 +1,12 @@
 # NeCGS: Neural Compression for 3D Geometry Sets [[Arxiv]](https://arxiv.org/abs/2405.15034)
+### Decompressed Meshes   
+<div class="container">
+<div class="row">
+<div class="col-12 text-center" id="pipeline">
+<img src='img/thingi.png' width=75%> 
+</div>
+</div>
+</div>  
 
 ### Regular Geometry Representation
 
