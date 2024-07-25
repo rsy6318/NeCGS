@@ -1,4 +1,4 @@
-# NeCGS
+# NeCGS: Neural Compression for 3D Geometry Sets [[Arxiv]](https://arxiv.org/abs/2405.15034)
 
 ### Regular Geometry Representation
 
