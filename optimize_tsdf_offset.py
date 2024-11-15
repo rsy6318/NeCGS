@@ -94,7 +94,7 @@ def opt_fmc(input_v,input_f,iter=500,train_res=[2048,2048],lr=0.01,batch=4,voxel
         else:
             reg_loss=0
 
-        total_loss = mask_loss + depth_loss + reg_loss
+        total_loss = mask_loss + depth_loss + reg_loss + 10*torch.abs(deform).mean()
 
         total_loss.backward()
         optimizer.step()
