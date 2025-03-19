@@ -139,3 +139,51 @@ def filter_connected_components(mesh, min_triangle_count):
     filtered_mesh =  trimesh.util.concatenate(filtered_components)           #[triangle for component in filtered_components for triangle in component]
 
     return filtered_mesh
+
+class SSIM3D(torch.nn.Module):
+    def __init__(self,window_size=5,sigma=1.5,channel=4):
+        super().__init__()
+
+        self.padding = window_size // 2
+        self.channel=channel
+        #self.data_range=data_range
+        self.register_buffer('kernel',self.create_gaussian_kernel(window_size, sigma, channel))
+        
+
+    def create_gaussian_kernel(self,window_size, sigma, channels):
+        kernel = torch.tensor([
+            [[self.gaussian(x-window_size//2, y-window_size//2, z-window_size//2, sigma) for z in range(window_size)]
+            for y in range(window_size)]
+            for x in range(window_size)
+        ])
+        kernel = kernel / torch.sum(kernel)
+        kernel = kernel.view(1, 1, window_size, window_size, window_size).repeat(channels, 1, 1, 1, 1)
+        return kernel
+
+    def gaussian(self,x, y, z, sigma):
+        return math.exp(-(x ** 2 + y ** 2 + z ** 2) / (2 * sigma ** 2))
+    
+    def forward(self,x,y):
+        x=(x+1)/2
+        y=(y+1)/2
+        mu1 = F.conv3d(x, self.kernel, padding=self.padding, groups=self.channel)
+        mu2 = F.conv3d(y, self.kernel, padding=self.padding, groups=self.channel)
+
+        mu1_sq = mu1.pow(2)
+        mu2_sq = mu2.pow(2)
+        mu12 = mu1 * mu2
+
+        sigma1_sq = F.conv3d(x * x, self.kernel, padding=self.padding, groups=self.channel) - mu1_sq
+        sigma2_sq = F.conv3d(y * y, self.kernel, padding=self.padding, groups=self.channel) - mu2_sq
+        sigma12 = F.conv3d(x * y, self.kernel, padding=self.padding, groups=self.channel) - mu12
+
+        c1 = 0.01**2    #(0.01 * self.data_range) ** 2
+        c2 = 0.03**2    #(0.03 * self.data_range) ** 2
+
+        numerator = (2 * mu12 + c1) * (2 * sigma12 + c2)
+        denominator = (mu1_sq + mu2_sq + c1) * (sigma1_sq + sigma2_sq + c2)
+
+        ssim_map = numerator / denominator
+        ssim_val = torch.mean(ssim_map)
+
+        return ssim_val
